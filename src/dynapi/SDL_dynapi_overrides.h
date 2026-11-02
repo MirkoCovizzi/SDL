@@ -1297,3 +1297,8 @@
 #define SDL_LoadSurface_IO SDL_LoadSurface_IO_REAL
 #define SDL_LoadSurface SDL_LoadSurface_REAL
 #define SDL_SetWindowFillDocument SDL_SetWindowFillDocument_REAL
+#define SDL_GPUSupportsQueryType SDL_GPUSupportsQueryType_REAL
+#define SDL_CreateGPUQueryPool SDL_CreateGPUQueryPool_REAL
+#define SDL_ReleaseGPUQueryPool SDL_ReleaseGPUQueryPool_REAL
+#define SDL_SetGPUPassTimestamps SDL_SetGPUPassTimestamps_REAL
+#define SDL_GetGPUQueryPoolResults SDL_GetGPUQueryPoolResults_REAL

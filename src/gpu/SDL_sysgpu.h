@@ -94,6 +94,12 @@ typedef struct CommandBufferCommonHeader
     bool ignore_render_pass_texture_validation;
 } CommandBufferCommonHeader;
 
+typedef struct QueryPoolCommonHeader
+{
+    SDL_GPUQueryType type;
+    Uint32 num_queries;
+} QueryPoolCommonHeader;
+
 typedef struct TextureCommonHeader
 {
     SDL_GPUTextureCreateInfo info;
@@ -1072,6 +1078,29 @@ struct SDL_GPUDevice
         SDL_GPURenderer *driverData,
         SDL_GPUFence *fence);
 
+    // Queries
+
+    SDL_GPUQueryPool *(*CreateQueryPool)(
+        SDL_GPURenderer *driverData,
+        const SDL_GPUQueryPoolCreateInfo *createinfo);
+
+    void (*ReleaseQueryPool)(
+        SDL_GPURenderer *driverData,
+        SDL_GPUQueryPool *pool);
+
+    void (*SetPassTimestamps)(
+        SDL_GPUCommandBuffer *commandBuffer,
+        SDL_GPUQueryPool *pool,
+        Uint32 beginningIndex,
+        Uint32 endIndex);
+
+    bool (*GetQueryPoolResults)(
+        SDL_GPURenderer *driverData,
+        SDL_GPUQueryPool *pool,
+        Uint32 firstQuery,
+        Uint32 numQueries,
+        Uint64 *nanoseconds);
+
     // Feature Queries
 
     bool (*SupportsTextureFormat)(
@@ -1084,6 +1113,10 @@ struct SDL_GPUDevice
         SDL_GPURenderer *driverData,
         SDL_GPUTextureFormat format,
         SDL_GPUSampleCount desiredSampleCount);
+
+    bool (*SupportsQueryType)(
+        SDL_GPURenderer *driverData,
+        SDL_GPUQueryType type);
 
     // Opaque pointer for the Driver
     SDL_GPURenderer *driverData;
@@ -1187,8 +1220,13 @@ struct SDL_GPUDevice
     ASSIGN_DRIVER_FUNC(WaitForFences, name)                 \
     ASSIGN_DRIVER_FUNC(QueryFence, name)                    \
     ASSIGN_DRIVER_FUNC(ReleaseFence, name)                  \
+    ASSIGN_DRIVER_FUNC(CreateQueryPool, name)               \
+    ASSIGN_DRIVER_FUNC(ReleaseQueryPool, name)              \
+    ASSIGN_DRIVER_FUNC(SetPassTimestamps, name)             \
+    ASSIGN_DRIVER_FUNC(GetQueryPoolResults, name)           \
     ASSIGN_DRIVER_FUNC(SupportsTextureFormat, name)         \
-    ASSIGN_DRIVER_FUNC(SupportsSampleCount, name)
+    ASSIGN_DRIVER_FUNC(SupportsSampleCount, name)           \
+    ASSIGN_DRIVER_FUNC(SupportsQueryType, name)
 
 typedef struct SDL_GPUBootstrap
 {

@@ -3554,6 +3554,161 @@ void SDL_ReleaseGPUFence(
         fence);
 }
 
+bool SDL_GPUSupportsQueryType(
+    SDL_GPUDevice *device,
+    SDL_GPUQueryType type)
+{
+    CHECK_DEVICE_MAGIC(device, false);
+
+    CHECK_PARAM(type != SDL_GPU_QUERYTYPE_TIMESTAMP) {
+        SDL_SetError("Unknown query type");
+        return false;
+    }
+
+    return device->SupportsQueryType(
+        device->driverData,
+        type);
+}
+
+SDL_GPUQueryPool *SDL_CreateGPUQueryPool(
+    SDL_GPUDevice *device,
+    const SDL_GPUQueryPoolCreateInfo *createinfo)
+{
+    CHECK_DEVICE_MAGIC(device, NULL);
+
+    CHECK_PARAM(createinfo == NULL) {
+        SDL_InvalidParamError("createinfo");
+        return NULL;
+    }
+
+    CHECK_PARAM(createinfo->type != SDL_GPU_QUERYTYPE_TIMESTAMP) {
+        SDL_SetError("Unknown query type");
+        return NULL;
+    }
+
+    CHECK_PARAM(createinfo->num_queries == 0) {
+        SDL_SetError("num_queries must be greater than zero");
+        return NULL;
+    }
+
+    if (device->debug_mode) {
+        if (!device->SupportsQueryType(device->driverData, createinfo->type)) {
+            SDL_assert_release(!"Query type is not supported by this device!");
+            return NULL;
+        }
+    }
+
+    return device->CreateQueryPool(
+        device->driverData,
+        createinfo);
+}
+
+void SDL_ReleaseGPUQueryPool(
+    SDL_GPUDevice *device,
+    SDL_GPUQueryPool *pool)
+{
+    if (pool == NULL) {
+        return;
+    }
+
+    CHECK_DEVICE_MAGIC(device, );
+
+    device->ReleaseQueryPool(
+        device->driverData,
+        pool);
+}
+
+void SDL_SetGPUPassTimestamps(
+    SDL_GPUCommandBuffer *command_buffer,
+    SDL_GPUQueryPool *pool,
+    Uint32 beginning_index,
+    Uint32 end_index)
+{
+    CommandBufferCommonHeader *commandBufferHeader = (CommandBufferCommonHeader *)command_buffer;
+
+    CHECK_PARAM(command_buffer == NULL) {
+        SDL_InvalidParamError("command_buffer");
+        return;
+    }
+
+    if (pool != NULL) {
+        QueryPoolCommonHeader *poolHeader = (QueryPoolCommonHeader *)pool;
+
+        CHECK_PARAM(beginning_index != SDL_GPU_QUERY_INDEX_NONE && beginning_index >= poolHeader->num_queries) {
+            SDL_SetError("beginning_index is out of range for the query pool");
+            return;
+        }
+        CHECK_PARAM(end_index != SDL_GPU_QUERY_INDEX_NONE && end_index >= poolHeader->num_queries) {
+            SDL_SetError("end_index is out of range for the query pool");
+            return;
+        }
+
+        if (commandBufferHeader->device->debug_mode) {
+            if (poolHeader->type != SDL_GPU_QUERYTYPE_TIMESTAMP) {
+                SDL_assert_release(!"Query pool type must be SDL_GPU_QUERYTYPE_TIMESTAMP!");
+                return;
+            }
+            if (!commandBufferHeader->device->SupportsQueryType(commandBufferHeader->device->driverData, poolHeader->type)) {
+                SDL_assert_release(!"Query type is not supported by this device!");
+                return;
+            }
+            if (beginning_index != SDL_GPU_QUERY_INDEX_NONE && beginning_index == end_index) {
+                SDL_assert_release(!"beginning_index and end_index must be different!");
+                return;
+            }
+        }
+    }
+
+    if (commandBufferHeader->device->debug_mode) {
+        CHECK_COMMAND_BUFFER
+        CHECK_ANY_PASS_IN_PROGRESS("Cannot set pass timestamps during a pass!", );
+    }
+
+    commandBufferHeader->device->SetPassTimestamps(
+        command_buffer,
+        pool,
+        beginning_index,
+        end_index);
+}
+
+bool SDL_GetGPUQueryPoolResults(
+    SDL_GPUDevice *device,
+    SDL_GPUQueryPool *pool,
+    Uint32 first_query,
+    Uint32 num_queries,
+    Uint64 *nanoseconds)
+{
+    QueryPoolCommonHeader *poolHeader = (QueryPoolCommonHeader *)pool;
+
+    CHECK_DEVICE_MAGIC(device, false);
+
+    CHECK_PARAM(pool == NULL) {
+        SDL_InvalidParamError("pool");
+        return false;
+    }
+
+    if (num_queries == 0) {
+        return true;
+    }
+
+    CHECK_PARAM(nanoseconds == NULL) {
+        SDL_InvalidParamError("nanoseconds");
+        return false;
+    }
+
+    CHECK_PARAM(first_query >= poolHeader->num_queries || num_queries > poolHeader->num_queries - first_query) {
+        SDL_SetError("Query range is out of bounds for the query pool");
+        return false;
+    }
+
+    return device->GetQueryPoolResults(
+        device->driverData,
+        pool,
+        first_query,
+        num_queries,
+        nanoseconds);
+}
+
 Uint32 SDL_CalculateGPUTextureFormatSize(
     SDL_GPUTextureFormat format,
     Uint32 width,
