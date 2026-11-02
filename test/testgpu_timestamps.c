@@ -452,6 +452,70 @@ int main(int argc, char *argv[])
     SDL_ReleaseGPUQueryPool(gpu_device, pool);
     pool = NULL;
 
+    /* Create and release many pools, including while command buffers that
+     * use them are still in flight. The last release happens right before the
+     * device is destroyed, so pools may still be queued for destruction then. */
+    for (iteration = 0; iteration < 4; ++iteration) {
+        SDL_GPUQueryPool *pools[24];
+        SDL_GPUCommandBuffer *cmd;
+        SDL_GPUFence *fence;
+        SDL_GPUColorTargetInfo color_target;
+        SDL_GPUDepthStencilTargetInfo depth_target;
+        Uint64 ns[2];
+        int num_pools = (int)SDL_arraysize(pools);
+
+        SDL_zero(color_target);
+        color_target.texture = color_texture;
+        color_target.load_op = SDL_GPU_LOADOP_CLEAR;
+        color_target.store_op = SDL_GPU_STOREOP_STORE;
+        SDL_zero(depth_target);
+        depth_target.texture = depth_texture;
+        depth_target.clear_depth = 1.0f;
+        depth_target.load_op = SDL_GPU_LOADOP_CLEAR;
+        depth_target.store_op = SDL_GPU_STOREOP_DONT_CARE;
+        depth_target.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+        depth_target.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+
+        SDL_zero(pool_info);
+        pool_info.type = SDL_GPU_QUERYTYPE_TIMESTAMP;
+        pool_info.num_queries = 2;
+        for (i = 0; i < num_pools; ++i) {
+            pools[i] = SDL_CreateGPUQueryPool(gpu_device, &pool_info);
+            if (!pools[i]) {
+                SDL_Log("FAIL: creating pool %d failed: %s", i, SDL_GetError());
+                rc = 3;
+                num_pools = i;
+                break;
+            }
+        }
+
+        cmd = SDL_AcquireGPUCommandBuffer(gpu_device);
+        for (i = 0; i < num_pools; ++i) {
+            SDL_SetGPUPassTimestamps(cmd, pools[i], 0, 1);
+            draw_many(cmd, pipeline, vertex_buffer, &color_target, &depth_target, 50);
+        }
+        fence = SDL_SubmitGPUCommandBufferAndAcquireFence(cmd);
+
+        /* Release every pool while the command buffer may still be running */
+        for (i = 0; i < num_pools; ++i) {
+            if (iteration == 3 && i == 0) {
+                /* Read this one back after the fence, release it last */
+                continue;
+            }
+            SDL_ReleaseGPUQueryPool(gpu_device, pools[i]);
+        }
+        SDL_WaitForGPUFences(gpu_device, true, &fence, 1);
+        SDL_ReleaseGPUFence(gpu_device, fence);
+        if (num_pools > 0 && iteration == 3) {
+            if (!SDL_GetGPUQueryPoolResults(gpu_device, pools[0], 0, 2, ns) || ns[1] < ns[0]) {
+                SDL_Log("FAIL: reading a pool after in-flight releases of others failed");
+                rc = 3;
+            }
+            SDL_ReleaseGPUQueryPool(gpu_device, pools[0]);
+            SDL_Log("Released %d pools while their command buffer was in flight", num_pools - 1);
+        }
+    }
+
 cleanup:
     SDL_ReleaseGPUQueryPool(gpu_device, pool);
     SDL_ReleaseGPUTransferBuffer(gpu_device, transfer);

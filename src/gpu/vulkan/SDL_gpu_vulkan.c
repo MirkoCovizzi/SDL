@@ -13435,6 +13435,13 @@ static SDL_GPUDevice *VULKAN_CreateDevice(bool debugMode, bool preferLowPower, S
         sizeof(VulkanSampler *) *
         renderer->samplersToDestroyCapacity);
 
+    renderer->queryPoolsToDestroyCapacity = 16;
+    renderer->queryPoolsToDestroyCount = 0;
+
+    renderer->queryPoolsToDestroy = SDL_malloc(
+        sizeof(VulkanQueryPool *) *
+        renderer->queryPoolsToDestroyCapacity);
+
     renderer->graphicsPipelinesToDestroyCapacity = 16;
     renderer->graphicsPipelinesToDestroyCount = 0;
 
