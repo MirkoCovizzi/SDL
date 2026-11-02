@@ -598,6 +598,44 @@ typedef struct SDL_GPUCopyPass SDL_GPUCopyPass;
 typedef struct SDL_GPUFence SDL_GPUFence;
 
 /**
+ * An opaque handle representing a pool of GPU queries.
+ *
+ * Query pools are created with SDL_CreateGPUQueryPool and filled in by the
+ * GPU while a command buffer executes. See SDL_SetGPUPassTimestamps.
+ *
+ * \since This struct is available since SDL 3.4.18 (hako fork, not part of upstream SDL).
+ *
+ * \sa SDL_CreateGPUQueryPool
+ * \sa SDL_SetGPUPassTimestamps
+ * \sa SDL_GetGPUQueryPoolResults
+ * \sa SDL_ReleaseGPUQueryPool
+ */
+typedef struct SDL_GPUQueryPool SDL_GPUQueryPool;
+
+/**
+ * Specifies the kind of query stored in an SDL_GPUQueryPool.
+ *
+ * \since This enum is available since SDL 3.4.18 (hako fork, not part of upstream SDL).
+ *
+ * \sa SDL_GPUSupportsQueryType
+ * \sa SDL_CreateGPUQueryPool
+ */
+typedef enum SDL_GPUQueryType
+{
+    SDL_GPU_QUERYTYPE_TIMESTAMP /**< Each query holds a GPU timestamp, written at the beginning or end of a pass. */
+} SDL_GPUQueryType;
+
+/**
+ * A value for the beginning or end index of SDL_SetGPUPassTimestamps that
+ * means "do not write a timestamp".
+ *
+ * \since This macro is available since SDL 3.4.18 (hako fork, not part of upstream SDL).
+ *
+ * \sa SDL_SetGPUPassTimestamps
+ */
+#define SDL_GPU_QUERY_INDEX_NONE 0xFFFFFFFFu
+
+/**
  * Specifies the primitive topology of a graphics pipeline.
  *
  * If you are using POINTLIST you must include a point size output in the
@@ -1629,6 +1667,22 @@ typedef struct SDL_GPUSamplerCreateInfo
 
     SDL_PropertiesID props;                    /**< A properties ID for extensions. Should be 0 if no extensions are needed. */
 } SDL_GPUSamplerCreateInfo;
+
+/**
+ * A structure specifying the parameters of a query pool.
+ *
+ * \since This struct is available since SDL 3.4.18 (hako fork, not part of upstream SDL).
+ *
+ * \sa SDL_CreateGPUQueryPool
+ * \sa SDL_GPUQueryType
+ */
+typedef struct SDL_GPUQueryPoolCreateInfo
+{
+    SDL_GPUQueryType type;      /**< The type of query stored in the pool. */
+    Uint32 num_queries;         /**< The number of queries in the pool. Must be greater than zero. */
+
+    SDL_PropertiesID props;     /**< A properties ID for extensions. Should be 0 if no extensions are needed. */
+} SDL_GPUQueryPoolCreateInfo;
 
 /**
  * A structure specifying the parameters of vertex buffers used in a graphics
@@ -4506,6 +4560,172 @@ extern SDL_DECLSPEC bool SDLCALL SDL_QueryGPUFence(
 extern SDL_DECLSPEC void SDLCALL SDL_ReleaseGPUFence(
     SDL_GPUDevice *device,
     SDL_GPUFence *fence);
+
+/* Queries */
+
+/**
+ * Checks whether a GPU device supports a type of query.
+ *
+ * Support depends on both the backend and the hardware. Timestamp queries are
+ * currently implemented by the Vulkan backend only; other backends report
+ * false.
+ *
+ * \param device a GPU context.
+ * \param type the type of query to check.
+ * \returns true if query pools of this type can be created, false otherwise.
+ *
+ * \threadsafety It is safe to call this function from any thread.
+ *
+ * \since This function is available since SDL 3.4.18 (hako fork, not part of upstream SDL).
+ *
+ * \sa SDL_CreateGPUQueryPool
+ */
+extern SDL_DECLSPEC bool SDLCALL SDL_GPUSupportsQueryType(
+    SDL_GPUDevice *device,
+    SDL_GPUQueryType type);
+
+/**
+ * Creates a pool of GPU queries.
+ *
+ * There are optional properties that can be provided through `props`. These
+ * are the supported properties:
+ *
+ * - `SDL_PROP_GPU_QUERYPOOL_CREATE_NAME_STRING`: a name that can be displayed
+ *   in debugging tools.
+ *
+ * The device must support the requested query type, see
+ * SDL_GPUSupportsQueryType.
+ *
+ * \param device a GPU context.
+ * \param createinfo a struct describing the state of the query pool to
+ *                   create.
+ * \returns a query pool object on success, or NULL on failure; call
+ *          SDL_GetError() for more information.
+ *
+ * \threadsafety It is safe to call this function from any thread.
+ *
+ * \since This function is available since SDL 3.4.18 (hako fork, not part of upstream SDL).
+ *
+ * \sa SDL_GPUSupportsQueryType
+ * \sa SDL_SetGPUPassTimestamps
+ * \sa SDL_GetGPUQueryPoolResults
+ * \sa SDL_ReleaseGPUQueryPool
+ */
+extern SDL_DECLSPEC SDL_GPUQueryPool * SDLCALL SDL_CreateGPUQueryPool(
+    SDL_GPUDevice *device,
+    const SDL_GPUQueryPoolCreateInfo *createinfo);
+
+#define SDL_PROP_GPU_QUERYPOOL_CREATE_NAME_STRING "SDL.gpu.querypool.create.name"
+
+/**
+ * Frees the resources associated with a query pool.
+ *
+ * The pool may be released while command buffers that write to it are still
+ * executing; it will be destroyed once they complete. You must not reference
+ * the pool after calling this function.
+ *
+ * It is safe to pass NULL for `pool`, in that case this function is a no-op.
+ *
+ * \param device a GPU context.
+ * \param pool a query pool to be destroyed.
+ *
+ * \threadsafety It is safe to call this function from any thread.
+ *
+ * \since This function is available since SDL 3.4.18 (hako fork, not part of upstream SDL).
+ *
+ * \sa SDL_CreateGPUQueryPool
+ */
+extern SDL_DECLSPEC void SDLCALL SDL_ReleaseGPUQueryPool(
+    SDL_GPUDevice *device,
+    SDL_GPUQueryPool *pool);
+
+/**
+ * Requests GPU timestamps at the beginning and end of the next pass.
+ *
+ * The request applies to the next render, compute or copy pass begun on
+ * `command_buffer`, and is consumed by that pass. Call this function again
+ * before each pass that should be timed. It must not be called while a pass
+ * is in progress on the command buffer.
+ *
+ * Each of `beginning_index` and `end_index` is the index of a query in
+ * `pool`, or SDL_GPU_QUERY_INDEX_NONE to skip that timestamp. When both are
+ * given they must be different. The beginning timestamp is written when the
+ * GPU starts executing the pass (top of pipe) and the end timestamp when the
+ * GPU has finished all work in the pass (bottom of pipe). Only the pass
+ * boundaries can be timed: this restriction is what allows the same API to be
+ * implemented on GPUs that cannot sample timestamps in the middle of a pass.
+ *
+ * Passing NULL for `pool` cancels a request that has not been consumed yet.
+ *
+ * The queries are reset when the pass begins, so the previous results of the
+ * indices used here are discarded as soon as the command buffer executes. If
+ * you keep several frames in flight, use a separate range of queries (or a
+ * separate pool) per frame.
+ *
+ * The pool is kept alive until the command buffer has finished executing,
+ * even if SDL_ReleaseGPUQueryPool is called in the meantime.
+ *
+ * \param command_buffer a command buffer.
+ * \param pool a query pool of type SDL_GPU_QUERYTYPE_TIMESTAMP, or NULL to
+ *             cancel a pending request.
+ * \param beginning_index the query that receives the timestamp at the
+ *                        beginning of the pass, or SDL_GPU_QUERY_INDEX_NONE.
+ * \param end_index the query that receives the timestamp at the end of the
+ *                  pass, or SDL_GPU_QUERY_INDEX_NONE.
+ *
+ * \threadsafety You must not call this function from multiple threads with
+ *               the same command buffer.
+ *
+ * \since This function is available since SDL 3.4.18 (hako fork, not part of upstream SDL).
+ *
+ * \sa SDL_GPUSupportsQueryType
+ * \sa SDL_CreateGPUQueryPool
+ * \sa SDL_GetGPUQueryPoolResults
+ */
+extern SDL_DECLSPEC void SDLCALL SDL_SetGPUPassTimestamps(
+    SDL_GPUCommandBuffer *command_buffer,
+    SDL_GPUQueryPool *pool,
+    Uint32 beginning_index,
+    Uint32 end_index);
+
+/**
+ * Reads back the results of a range of queries.
+ *
+ * The command buffer that wrote the queries must have finished executing;
+ * use a fence from SDL_SubmitGPUCommandBufferAndAcquireFence to know when.
+ * This function fails, without blocking, if any query in the range has not
+ * been written yet or was never written. Only read a pool after at least one
+ * command buffer that uses it with SDL_SetGPUPassTimestamps has completed.
+ *
+ * For timestamp pools, each result is a time in nanoseconds on a
+ * device-specific timeline. The origin of that timeline is unspecified, so
+ * only differences between values from the same pool and device are
+ * meaningful. Values are not comparable between devices, and may not be
+ * comparable between pools.
+ *
+ * \param device a GPU context.
+ * \param pool the query pool to read.
+ * \param first_query the index of the first query to read.
+ * \param num_queries the number of queries to read.
+ * \param nanoseconds a pointer to an array of at least `num_queries` values
+ *                    that receives the results.
+ * \returns true on success, or false if a query was not available or on
+ *          failure; call SDL_GetError() for more information.
+ *
+ * \threadsafety It is safe to call this function from any thread.
+ *
+ * \since This function is available since SDL 3.4.18 (hako fork, not part of upstream SDL).
+ *
+ * \sa SDL_SetGPUPassTimestamps
+ * \sa SDL_SubmitGPUCommandBufferAndAcquireFence
+ * \sa SDL_QueryGPUFence
+ */
+extern SDL_DECLSPEC bool SDLCALL SDL_GetGPUQueryPoolResults(
+    SDL_GPUDevice *device,
+    SDL_GPUQueryPool *pool,
+    Uint32 first_query,
+    Uint32 num_queries,
+    Uint64 *nanoseconds);
 
 /* Format Info */
 

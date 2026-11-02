@@ -1488,6 +1488,65 @@ static MetalTexture *METAL_INTERNAL_CreateTexture(
     return metalTexture;
 }
 
+// Queries
+
+/* Timestamp queries are not implemented for this backend yet. The design
+ * notes live in the commit message that introduced SDL_GPUQueryPool. */
+
+static bool METAL_SupportsQueryType(
+    SDL_GPURenderer *driverData,
+    SDL_GPUQueryType type)
+{
+    (void)driverData;
+    (void)type;
+    return false;
+}
+
+static SDL_GPUQueryPool *METAL_CreateQueryPool(
+    SDL_GPURenderer *driverData,
+    const SDL_GPUQueryPoolCreateInfo *createinfo)
+{
+    (void)driverData;
+    (void)createinfo;
+    SDL_Unsupported();
+    return NULL;
+}
+
+static void METAL_ReleaseQueryPool(
+    SDL_GPURenderer *driverData,
+    SDL_GPUQueryPool *pool)
+{
+    (void)driverData;
+    (void)pool;
+}
+
+static void METAL_SetPassTimestamps(
+    SDL_GPUCommandBuffer *commandBuffer,
+    SDL_GPUQueryPool *pool,
+    Uint32 beginningIndex,
+    Uint32 endIndex)
+{
+    (void)commandBuffer;
+    (void)pool;
+    (void)beginningIndex;
+    (void)endIndex;
+}
+
+static bool METAL_GetQueryPoolResults(
+    SDL_GPURenderer *driverData,
+    SDL_GPUQueryPool *pool,
+    Uint32 firstQuery,
+    Uint32 numQueries,
+    Uint64 *nanoseconds)
+{
+    (void)driverData;
+    (void)pool;
+    (void)firstQuery;
+    (void)numQueries;
+    (void)nanoseconds;
+    return SDL_Unsupported();
+}
+
 static bool METAL_SupportsSampleCount(
     SDL_GPURenderer *driverData,
     SDL_GPUTextureFormat format,
